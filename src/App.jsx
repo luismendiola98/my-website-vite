@@ -1,42 +1,42 @@
-import { useState, useEffect } from 'react'
-import ReactRouterSetup from './setup/index'
-import { Grid, CssBaseline, Divider } from '@mui/material'
-import { ThemeProvider, createTheme } from '@mui/material/styles'
-import { AiOutlinePhone, AiOutlineMail } from 'react-icons/ai'
-import { social } from './setup/data'
+import { useState, useEffect } from "react";
+import ReactRouterSetup from "./setup/index";
+import { Grid, CssBaseline, Divider } from "@mui/material";
+import { ThemeProvider, createTheme } from "@mui/material/styles";
+import { AiOutlinePhone, AiOutlineMail } from "react-icons/ai";
+import { social } from "./setup/data";
 
 const getTheme = () => {
-  const stored = localStorage.getItem('darkMode')
-  return stored ? JSON.parse(stored) : false
-}
+  const stored = localStorage.getItem("darkMode");
+  return stored ? JSON.parse(stored) : true;
+};
 
 function App() {
-  const [darkMode, setDarkMode] = useState(getTheme())
+  const [darkMode, setDarkMode] = useState(getTheme());
 
   const theme = createTheme({
     palette: {
-      mode: darkMode ? 'dark' : 'light',
+      mode: darkMode ? "dark" : "light",
     },
     components: {
       MuiDivider: {
         styleOverrides: {
           root: {
-            margin: '20px',
+            margin: "20px",
           },
         },
       },
     },
-  })
+  });
 
   const handleChange = (e) => {
-    setDarkMode(e.target.checked)
-  }
+    setDarkMode(e.target.checked);
+  };
 
-  const getYear = () => new Date().getFullYear()
+  const getYear = () => new Date().getFullYear();
 
   useEffect(() => {
-    localStorage.setItem('darkMode', JSON.stringify(darkMode))
-  }, [darkMode])
+    localStorage.setItem("darkMode", JSON.stringify(darkMode));
+  }, [darkMode]);
 
   return (
     <ThemeProvider theme={theme}>
@@ -44,10 +44,7 @@ function App() {
 
       <Grid container direction="column">
         <div>
-          <ReactRouterSetup 
-            darkMode={darkMode} 
-            onToggleTheme={handleChange}
-          />
+          <ReactRouterSetup darkMode={darkMode} onToggleTheme={handleChange} />
         </div>
 
         <Divider />
@@ -103,7 +100,7 @@ function App() {
         </div>
       </Grid>
     </ThemeProvider>
-  )
+  );
 }
 
-export default App
+export default App;

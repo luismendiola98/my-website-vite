@@ -1,5 +1,4 @@
 import { Helmet } from "react-helmet-async";
-import pdf from "../static/LuisMendiola_Resume.pdf";
 
 const Resume = () => {
   return (
@@ -9,14 +8,33 @@ const Resume = () => {
         <meta name="description" content="Resume of Luis F. Mendiola" />
       </Helmet>
       <div className="center">
-        <h1>My Resume</h1>
-        <iframe
-          title="Luis Mendiola Resume"
-          src={`${pdf}#view=fitH`}
-          width="auto"
-          height="480"
-          allow="autoplay"
-        ></iframe>
+        <h1>Resume</h1>
+
+        <div>
+          <a
+            className="btn-link"
+            href="/Luis_Mendiola_Resume.pdf"
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Download Resume
+          </a>
+        </div>
+
+        <div
+          style={{
+            marginTop: "20px",
+          }}
+        >
+          <iframe
+            src="/Luis_Mendiola_Resume.pdf"
+            width="100%"
+            height="600px"
+            style={{ border: "none", overflow: "hidden" }}
+            title="Resume"
+          />
+        </div>
       </div>
     </>
   );
