@@ -4,86 +4,90 @@ import { Helmet } from 'react-helmet'
 import { db } from './firebase'
 import { collection, getDocs } from 'firebase/firestore'
 
-var urls = []
-const delay = 2500
+const AUTO_ROTATE_DELAY = 2500
+const CACHE_DURATION_DAYS = 7
 
 async function getSession() {
-  var token = ''
-  const sessionCollectionRef = collection(db, 'sessions')
-  const data = await getDocs(sessionCollectionRef)
-  data.docs.forEach((doc) => {
-    token = doc.data().id
-  })
-  return token
+  try {
+    const sessionCollectionRef = collection(db, 'sessions')
+    const data = await getDocs(sessionCollectionRef)
+    let token = ''
+    data.docs.forEach((doc) => {
+      token = doc.data().id
+    })
+    return token
+  } catch (error) {
+    console.error('Error fetching session:', error)
+    throw error
+  }
 }
 
 async function getPosts() {
-  var session = ''
-  var next = ''
-  var img_urls = []
-  session = await getSession()
-  const headers = { 'Content-Type': 'application/json' }
-  var request = await fetch(
-    'https://graph.instagram.com/me/media?fields=id,media_type,media_url&access_token=' +
-      session,
-    { headers }
-  )
-  if (request.ok) {
-    var response = await request.json()
-
-    // add urls to urls array
-    for (var i = 0; i < response.data.length; i++) {
-      img_urls[i] = response.data[i].media_url
+  try {
+    const session = await getSession()
+    const headers = { 'Content-Type': 'application/json' }
+    const mediaUrl = `https://graph.instagram.com/me/media?fields=id,media_type,media_url&access_token=${session}`
+    
+    let response = await fetch(mediaUrl, { headers })
+    if (!response.ok) {
+      throw new Error(`Instagram API error: ${response.status}`)
     }
 
-    next = response.paging.next.replace('?', '?fields=id,media_type,media_url&')
+    let data = await response.json()
+    const imageUrls = data.data.map((item) => item.media_url)
 
-    // while there is a next page get the rest of urls
-    // add rest of urls to urls array
-    while (next !== '' && next !== undefined) {
-      request = await fetch(next, { headers })
-      if (request.ok) {
-        response = await request.json()
-        response.data.forEach((item) => {
-          img_urls.push(item.media_url)
-        })
-        // console.log('urls', urls)
-        if (response.paging.next !== undefined) {
-          next = response.paging.next.replace(
-            '?',
-            '?fields=id,media_type,media_url&'
-          )
-        } else {
-          next = undefined
-        }
+    let nextPageUrl = data.paging?.next
+    while (nextPageUrl) {
+      const nextPageUrlWithFields = nextPageUrl.replace(
+        '?',
+        '?fields=id,media_type,media_url&'
+      )
+      
+      response = await fetch(nextPageUrlWithFields, { headers })
+      if (!response.ok) {
+        console.warn('Failed to fetch next page, stopping pagination')
+        break
       }
+
+      data = await response.json()
+      data.data.forEach((item) => {
+        imageUrls.push(item.media_url)
+      })
+      nextPageUrl = data.paging?.next
     }
-  }
-  // console.log(img_urls)
-  return img_urls
-}
 
-function getRequestDate() {
-  let requestDate = localStorage.getItem('request_date')
-  if (requestDate) {
-    return (requestDate = JSON.parse(localStorage.getItem('request_date')))
-  } else {
-    return ''
+    return imageUrls
+  } catch (error) {
+    console.error('Error fetching posts:', error)
+    throw error
   }
 }
 
-function addDays(date, days) {
-  var new_date = new Date(date)
-  new_date.setDate(new_date.getDate() + days)
-  return new_date
+function getCachedRequestDate() {
+  const cachedDate = localStorage.getItem('request_date')
+  return cachedDate ? JSON.parse(cachedDate) : null
+}
+
+function isCacheExpired(cachedDate) {
+  if (!cachedDate) return true
+  const expirationDate = new Date(cachedDate)
+  expirationDate.setDate(expirationDate.getDate() + CACHE_DURATION_DAYS)
+  return expirationDate <= new Date()
+}
+
+function getCachedImages() {
+  const cached = localStorage.getItem('images')
+  return cached ? JSON.parse(cached) : null
 }
 
 const Photography = () => {
-  const [images, setImages] = useState([{}])
+  const [images, setImages] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [index, setIndex] = useState(0)
-  const { url } = images[index]
   const timeoutRef = useRef(null)
+
+  const url = images[index]?.url
 
   function resetTimeout() {
     if (timeoutRef.current) {
@@ -91,70 +95,74 @@ const Photography = () => {
     }
   }
 
-  const checkNumber = (number) => {
-    if (number > images.length - 1) {
-      return 0
-    }
-    if (number < 0) {
-      return images.length - 1
-    }
+  const getValidIndex = (number) => {
+    if (images.length === 0) return 0
+    if (number > images.length - 1) return 0
+    if (number < 0) return images.length - 1
     return number
   }
 
   const nextImage = () => {
-    setIndex((index) => {
-      let newIndex = index + 1
-      return checkNumber(newIndex)
-    })
+    setIndex((prevIndex) => getValidIndex(prevIndex + 1))
   }
 
   const prevImage = () => {
-    setIndex((index) => {
-      let newIndex = index - 1
-      return checkNumber(newIndex)
-    })
+    setIndex((prevIndex) => getValidIndex(prevIndex - 1))
   }
 
+  // Fetch images on mount
   useEffect(() => {
-    // GET request using fetch inside useEffect React hook
-    async function fetchData() {
-      var request_date = getRequestDate()
-      // if request_date is undefined || request_date + 7 days <= Date.now
-      // call api and set request_date = Date.now
-      if (request_date === '' || addDays(request_date, 7) <= Date.now()) {
-        urls = await getPosts()
+    async function fetchAndCacheImages() {
+      try {
+        setIsLoading(true)
+        setError(null)
 
-        if (urls.length !== 0) {
-          for (var i = 0; i < urls.length; i++) {
-            urls[i] = { id: i, url: urls[i] }
-          }
-          localStorage.setItem('images', JSON.stringify(urls))
-          localStorage.setItem('request_date', Date.now())
+        const cachedDate = getCachedRequestDate()
+        let imageUrls = []
+
+        // Check if cache is still valid
+        if (!isCacheExpired(cachedDate)) {
+          imageUrls = getCachedImages() || []
         }
-      } else {
-        // console.log(JSON.parse(localStorage.getItem('images')))
-        urls = JSON.parse(localStorage.getItem('images'))
-      }
-      if (urls.length !== 0) {
-        setIsLoading(false)
-        setImages([...urls])
 
-        resetTimeout()
-        timeoutRef.current = setTimeout(
-          () =>
-            setIndex((prevIndex) =>
-              prevIndex === urls.length - 1 ? 0 : prevIndex + 1
-            ),
-          delay
-        )
+        // If cache expired or empty, fetch new data
+        if (imageUrls.length === 0) {
+          imageUrls = await getPosts()
+          if (imageUrls.length > 0) {
+            const formattedImages = imageUrls.map((url, id) => ({ id, url }))
+            localStorage.setItem('images', JSON.stringify(formattedImages))
+            localStorage.setItem('request_date', JSON.stringify(Date.now()))
+            setImages(formattedImages)
+          }
+        } else {
+          setImages(imageUrls)
+        }
+
+        setIsLoading(false)
+      } catch (err) {
+        console.error('Failed to fetch images:', err)
+        setError('Failed to load images. Please try again later.')
+        setIsLoading(false)
       }
     }
-    fetchData()
-    return () => {
-      resetTimeout()
-    }
-    // empty dependency array means this effect will only run once (like componentDidMount in classes)
-  }, [index])
+
+    fetchAndCacheImages()
+    return () => resetTimeout()
+  }, [])
+
+  // Auto-rotate carousel
+  useEffect(() => {
+    if (isLoading || error || images.length === 0) return
+
+    resetTimeout()
+    timeoutRef.current = setTimeout(() => {
+      setIndex((prevIndex) =>
+        prevIndex === images.length - 1 ? 0 : prevIndex + 1
+      )
+    }, AUTO_ROTATE_DELAY)
+
+    return () => resetTimeout()
+  }, [index, images.length, isLoading, error])
 
   return (
     <>
@@ -168,14 +176,15 @@ const Photography = () => {
       <div>
         <h1>Glimpses of my life...</h1>
         {isLoading ? (
-          <h2>Loading... </h2>
+          <h2>Loading...</h2>
+        ) : error ? (
+          <div style={{ textAlign: 'center', padding: '2rem' }}>
+            <h2 style={{ color: '#d32f2f' }}>⚠️ {error}</h2>
+            <p>Check your connection and try refreshing the page.</p>
+          </div>
+        ) : images.length === 0 ? (
+          <h2>No images available</h2>
         ) : (
-          // images.map((image) => {
-          //   const { id, url } = image
-          //   return (
-          //     <img src={url} key={id} alt='Instagram post from @luiiis_shoots' />
-          //   )
-          // })
           <div className='container'>
             <div className='center'>
               <div className='img-container'>
@@ -186,11 +195,11 @@ const Photography = () => {
                 />
               </div>
               <div className='button-container'>
-                <button className='prev-btn' onClick={prevImage}>
-                  <FaChevronLeft aria-label='previous button' />
+                <button className='prev-btn' onClick={prevImage} aria-label='previous image'>
+                  <FaChevronLeft />
                 </button>
-                <button className='next-btn' onClick={nextImage}>
-                  <FaChevronRight aria-label='next button' />
+                <button className='next-btn' onClick={nextImage} aria-label='next image'>
+                  <FaChevronRight />
                 </button>
               </div>
             </div>
